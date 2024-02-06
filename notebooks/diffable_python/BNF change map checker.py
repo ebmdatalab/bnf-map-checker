@@ -87,30 +87,31 @@ display(items_df)
 
 key = items_df['bnf_code'].str.extract('^(' + '|'.join(codes_df['old_bnf_code']) + ')') # create key to allow partial match of codes to join
 code_check_df = codes_df.merge(items_df.assign(key=key), left_on='old_bnf_code', right_on='key').drop('key', 1) # merge two dfs using the key above
+code_check_df['month'] = pd.to_datetime(code_check_df['month']) #make sure that dates are in correct format
+code_check_df['change_date'] = pd.to_datetime(code_check_df['change_date'])
 display(code_check_df)
 
-filtered_df = df3[df3['old_bnf_code'].apply(lambda x: len(str(x)) != 15)]
+#check that partial codes maps correctly
+check_partial_df = code_check_df[code_check_df['old_bnf_code'].apply(lambda x: len(str(x)) != 15)]
+display(check_partial_df)
 
-filtered_df.head()
+# ### Check for old codes being used ###
+# By filtering the dataframe to only show prescribing on "old" BNF code after the expected change date, we can check for drugs that appear to not have had the expected code change. 
 
-df3['month'] = pd.to_datetime(df3['month'])
+old_code_df = code_check_df[code_check_df['month'] > code_check_df['change_date']] # filter prescribing to after expected change date
+# aggregate to show total items and when it was last prescribed
+old_code_agg_df = old_code_df.groupby(['old_bnf_code', 'new_bnf_code', 'bnf_name', 'change_date']).agg({'items': 'sum', 'month': 'max'}).reset_index().sort_values(by='old_bnf_code').rename(columns={'month': 'latest_month'}) 
+display(old_code_agg_df)
 
-df3['change_date'] = pd.to_datetime(df3['change_date'])
+# Looking at the data above there appears to be 5 drugs affected (with generic/brand pairs)
 
-filtered_df = df3[df3['month'] > df3['change_date']]
+# ### Check whether "new" codes are used for anything else ###
+# We can also check whether the codes which are on the map as "new" codes are actually being used for other drugs:
 
-filtered_df.head(500)
+new_code_df = pd.merge(old_code_df, items_df, left_on='new_bnf_code', right_on='bnf_code', how='inner') # merge the new codes to the BNF codes in items
+wrong_code_df =  new_code_df.groupby(['old_bnf_code', 'new_bnf_code', 'bnf_name_x', 'bnf_name_y','change_date']).agg({'items_x':'sum', 'items_y': 'sum', 'month_y': 'max'})
+display(wrong_code_df)
 
-result_df = filtered_df.groupby(['old_bnf_code', 'new_bnf_code', 'bnf_name', 'change_date']).agg({'items': 'sum', 'month': 'max'}).reset_index().sort_values(by='items', ascending=False).rename(columns={'month': 'latest_month'})
-
-result_df.head(200)
-
-merged_df = pd.merge(result_df, items_df, left_on='new_bnf_code', right_on='bnf_code', how='inner')
-
-merged_df.head()
-
-wrong_code_df =  merged_df.groupby(['old_bnf_code', 'new_bnf_code', 'bnf_name_x', 'bnf_name_y','change_date']).agg({'items_x':'sum', 'items_y': 'sum', 'month': 'max'})
-
-wrong_code_df.head(200)
+# It looks like there are "new" codes being used for other drugs.  Interestingly it seems that reslizumab isn't here - although as there's no prescribing it won't show in the prescribing data.
 
 
